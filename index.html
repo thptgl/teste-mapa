@@ -1,11 +1,39 @@
-import { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
-import L from "leaflet";
-import "leaflet/dist/leaflet.css";
-import { initializeApp } from "firebase/app";
-import { getFirestore, collection, addDoc, getDocs, query, where } from "firebase/firestore";
-import { getAnalytics } from "firebase/analytics";
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Mapa Cultural - Firebase</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    body, html { margin: 0; padding: 0; height: 100%; }
+    #map { height: 100%; }
+    #formulario {
+      position: absolute;
+      top: 10px; left: 10px;
+      background: white; padding: 10px;
+      z-index: 1000; border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+    }
+  </style>
+</head>
+<body>
 
+<div id="formulario">
+  <input type="text" id="nome" placeholder="Nome do local"/><br/>
+  <input type="text" id="tipo" placeholder="Tipo (ex: Museu, Teatro)"/><br/>
+  <button onclick="adicionarLocal()">Salvar local</button>
+</div>
+
+<div id="map"></div>
+
+<!-- Firebase SDKs -->
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.11.1/firebase-firestore-compat.js"></script>
+
+<script>
+  // 🔥 CONFIGURE SEU FIREBASE AQUI:
 const firebaseConfig = {
   apiKey: "AIzaSyDd_BUgK9ltCdFD0GloUABEKUvGzhQksjk",
   authDomain: "mapa-cultural-sp.firebaseapp.com",
@@ -15,118 +43,55 @@ const firebaseConfig = {
   appId: "1:383744764039:web:2aaede7c52a1fe480a7022",
   measurementId: "G-B55K9NKN1Q"
 };
+  firebase.initializeApp(firebaseConfig);
+  const db = firebase.firestore();
+</script>
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
-getAnalytics(app);
+<script>
+  const map = L.map('map').setView([-23.561684, -46.625378], 13);
 
-const defaultCenter = [-23.55052, -46.633308];
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '&copy; OpenStreetMap contributors'
+  }).addTo(map);
 
-function LocationMarker({ onSelect }) {
-  useMapEvents({
-    click(e) {
-      onSelect(e.latlng);
-    },
-  });
-  return null;
-}
-
-export default function App() {
-  const [places, setPlaces] = useState([]);
-  const [selectedPosition, setSelectedPosition] = useState(null);
-  const [newPlace, setNewPlace] = useState({ name: "", type: "", comment: "", rating: 0 });
-  const [filter, setFilter] = useState({ type: "", bairro: "" });
-
-  useEffect(() => {
-    async function fetchPlaces() {
-      const col = collection(db, "places");
-      const snapshot = await getDocs(col);
-      setPlaces(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-    }
-    fetchPlaces();
-  }, []);
-
-  async function addPlace() {
-    if (!selectedPosition) return;
-    const data = {
-      ...newPlace,
-      lat: selectedPosition.lat,
-      lng: selectedPosition.lng,
-      createdAt: new Date(),
-    };
-    const docRef = await addDoc(collection(db, "places"), data);
-    setPlaces([...places, { id: docRef.id, ...data }]);
-    setNewPlace({ name: "", type: "", comment: "", rating: 0 });
-    setSelectedPosition(null);
+  function carregarLocais() {
+    db.collection("locais").get().then((querySnapshot) => {
+      querySnapshot.forEach((doc) => {
+        const local = doc.data();
+        if (local.latitude && local.longitude) {
+          L.marker([local.latitude, local.longitude])
+            .addTo(map)
+            .bindPopup(`<b>${local.nome}</b><br>${local.tipo}`);
+        }
+      });
+    });
   }
 
-  const filteredPlaces = places.filter(place => {
-    return (
-      (!filter.type || place.type === filter.type) &&
-      (!filter.bairro || place.bairro === filter.bairro)
-    );
-  });
+  function adicionarLocal() {
+    const nome = document.getElementById("nome").value;
+    const tipo = document.getElementById("tipo").value;
+    if (!nome || !tipo) return alert("Preencha todos os campos.");
 
-  return (
-    <div className="h-screen w-screen">
-      <MapContainer center={defaultCenter} zoom={12} className="h-full w-full">
-        <TileLayer
-          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-          attribution="&copy; OpenStreetMap contributors"
-        />
-        <LocationMarker onSelect={setSelectedPosition} />
+    map.once('click', function (e) {
+      const latlng = e.latlng;
+      db.collection("locais").add({
+        nome,
+        tipo,
+        latitude: latlng.lat,
+        longitude: latlng.lng
+      }).then(() => {
+        alert("Local salvo com sucesso!");
+        location.reload();
+      }).catch((err) => {
+        alert("Erro ao salvar: " + err);
+      });
+    });
 
-        {filteredPlaces.map((place) => (
-          <Marker key={place.id} position={[place.lat, place.lng]}>
-            <Popup>
-              <strong>{place.name}</strong>
-              <br />
-              Tipo: {place.type}
-              <br />
-              Nota: {place.rating}/5
-              <br />
-              Comentário: {place.comment}
-            </Popup>
-          </Marker>
-        ))}
-      </MapContainer>
+    alert("Clique no mapa para escolher a localização do local.");
+  }
 
-      {selectedPosition && (
-        <div className="absolute top-4 left-4 bg-white p-4 rounded shadow-md w-64">
-          <h2 className="text-lg font-bold">Novo Lugar</h2>
-          <input
-            type="text"
-            placeholder="Nome"
-            value={newPlace.name}
-            onChange={(e) => setNewPlace({ ...newPlace, name: e.target.value })}
-            className="border p-1 w-full mb-2"
-          />
-          <input
-            type="text"
-            placeholder="Tipo (teatro, cinema, etc)"
-            value={newPlace.type}
-            onChange={(e) => setNewPlace({ ...newPlace, type: e.target.value })}
-            className="border p-1 w-full mb-2"
-          />
-          <input
-            type="text"
-            placeholder="Comentário"
-            value={newPlace.comment}
-            onChange={(e) => setNewPlace({ ...newPlace, comment: e.target.value })}
-            className="border p-1 w-full mb-2"
-          />
-          <input
-            type="number"
-            placeholder="Nota (0-5)"
-            value={newPlace.rating}
-            onChange={(e) => setNewPlace({ ...newPlace, rating: Number(e.target.value) })}
-            className="border p-1 w-full mb-2"
-          />
-          <button onClick={addPlace} className="bg-blue-500 text-white px-3 py-1 rounded">
-            Salvar
-          </button>
-        </div>
-      )}
-    </div>
-  );
-}
+  carregarLocais();
+</script>
+
+</body>
+</html>
