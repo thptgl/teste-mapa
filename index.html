@@ -1,0 +1,132 @@
+import { useEffect, useState } from "react";
+import { MapContainer, TileLayer, Marker, Popup, useMapEvents } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc, getDocs, query, where } from "firebase/firestore";
+import { getAnalytics } from "firebase/analytics";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyDd_BUgK9ltCdFD0GloUABEKUvGzhQksjk",
+  authDomain: "mapa-cultural-sp.firebaseapp.com",
+  projectId: "mapa-cultural-sp",
+  storageBucket: "mapa-cultural-sp.firebasestorage.app",
+  messagingSenderId: "383744764039",
+  appId: "1:383744764039:web:2aaede7c52a1fe480a7022",
+  measurementId: "G-B55K9NKN1Q"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+getAnalytics(app);
+
+const defaultCenter = [-23.55052, -46.633308];
+
+function LocationMarker({ onSelect }) {
+  useMapEvents({
+    click(e) {
+      onSelect(e.latlng);
+    },
+  });
+  return null;
+}
+
+export default function App() {
+  const [places, setPlaces] = useState([]);
+  const [selectedPosition, setSelectedPosition] = useState(null);
+  const [newPlace, setNewPlace] = useState({ name: "", type: "", comment: "", rating: 0 });
+  const [filter, setFilter] = useState({ type: "", bairro: "" });
+
+  useEffect(() => {
+    async function fetchPlaces() {
+      const col = collection(db, "places");
+      const snapshot = await getDocs(col);
+      setPlaces(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }
+    fetchPlaces();
+  }, []);
+
+  async function addPlace() {
+    if (!selectedPosition) return;
+    const data = {
+      ...newPlace,
+      lat: selectedPosition.lat,
+      lng: selectedPosition.lng,
+      createdAt: new Date(),
+    };
+    const docRef = await addDoc(collection(db, "places"), data);
+    setPlaces([...places, { id: docRef.id, ...data }]);
+    setNewPlace({ name: "", type: "", comment: "", rating: 0 });
+    setSelectedPosition(null);
+  }
+
+  const filteredPlaces = places.filter(place => {
+    return (
+      (!filter.type || place.type === filter.type) &&
+      (!filter.bairro || place.bairro === filter.bairro)
+    );
+  });
+
+  return (
+    <div className="h-screen w-screen">
+      <MapContainer center={defaultCenter} zoom={12} className="h-full w-full">
+        <TileLayer
+          url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+          attribution="&copy; OpenStreetMap contributors"
+        />
+        <LocationMarker onSelect={setSelectedPosition} />
+
+        {filteredPlaces.map((place) => (
+          <Marker key={place.id} position={[place.lat, place.lng]}>
+            <Popup>
+              <strong>{place.name}</strong>
+              <br />
+              Tipo: {place.type}
+              <br />
+              Nota: {place.rating}/5
+              <br />
+              Comentário: {place.comment}
+            </Popup>
+          </Marker>
+        ))}
+      </MapContainer>
+
+      {selectedPosition && (
+        <div className="absolute top-4 left-4 bg-white p-4 rounded shadow-md w-64">
+          <h2 className="text-lg font-bold">Novo Lugar</h2>
+          <input
+            type="text"
+            placeholder="Nome"
+            value={newPlace.name}
+            onChange={(e) => setNewPlace({ ...newPlace, name: e.target.value })}
+            className="border p-1 w-full mb-2"
+          />
+          <input
+            type="text"
+            placeholder="Tipo (teatro, cinema, etc)"
+            value={newPlace.type}
+            onChange={(e) => setNewPlace({ ...newPlace, type: e.target.value })}
+            className="border p-1 w-full mb-2"
+          />
+          <input
+            type="text"
+            placeholder="Comentário"
+            value={newPlace.comment}
+            onChange={(e) => setNewPlace({ ...newPlace, comment: e.target.value })}
+            className="border p-1 w-full mb-2"
+          />
+          <input
+            type="number"
+            placeholder="Nota (0-5)"
+            value={newPlace.rating}
+            onChange={(e) => setNewPlace({ ...newPlace, rating: Number(e.target.value) })}
+            className="border p-1 w-full mb-2"
+          />
+          <button onClick={addPlace} className="bg-blue-500 text-white px-3 py-1 rounded">
+            Salvar
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
